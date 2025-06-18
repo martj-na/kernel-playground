@@ -1,58 +1,187 @@
-# Project Overview
+# DNS Response Latency Monitoring
 
-This repository provides tools and resources for customizing and building a Linux kernel with a focus on packet filtering using the Netfilter subsystem. It also includes scripts and configurations for setting up a testing environment within virtual machines.
+A detailed report explaining the code functionality is available in the `SNProject.pdf` file.
 
----
+After setting up the kernel-playground by following the instructions in the `/podman` and `/tests/vm` README files, you can proceed to test this code.
 
-## Repository Structure
+## Setup 
 
-### 1. `kernel` Folder
-Contains the kernel configuration, source code, and a custom kernel module. The `Makefile` in this folder supports various tasks:
 
-- **config**: Copies the kernel configuration file into the Linux kernel source directory.
-- **kbuild**: Builds the entire Linux kernel.
-- **install**: Creates a symbolic link to the compiled kernel (`bzImage`) inside the `tests/vm` folder, enabling the VM to boot with this custom kernel.
-- **kmodule**: Builds the custom kernel module and copies the resulting `.ko` file into the `tests/vm/shared` folder. This allows the VM's guest OS to load the module using `insmod`.
 
-**Note:** The `modules` subfolder contains the source code for the custom kernel module and a `Makefile` to compile and install it into the shared VM folder. Refer to the specific `README.md` within the `modules` folder for instructions on recompiling and copying the module after modifications.
+### Setup Container
 
----
+In the `/opt/kernel-playground/src/c` directory, there are subfolders for the basic, intermediate, and advanced tasks. Copy the `netprog.h` and `netprog.bpf.c` files from the relevant subdirectory into `/opt/kernel-playground/src/c`, then run:
 
-### 2. `podman` Folder
-Includes scripts and configurations to set up a containerized environment for building and running the kernel and modules.
+```sh
+make
+make install
+```
 
-**Note:** For setup instructions, see the `README.md` inside the `podman` folder.
+This will copy the `.o` file related to that task into the `shared` folder inside the VM. If you want to try another task, you should re-do this using the appropriate files.
 
----
+You also need to copy the contents of `/opt/kernel-playground/tests/scripts` (specifically: `xdp_icmpv6_drop.sh`, `routing.sh`, `basicTaskParse.py`, `intermediateTaskParse.py`, and `advancedTaskParse.py`) into `/opt/kernel-playground/tests/vm/shared`. You can do this with the following command:
 
-### 3. `tests` Folder
-Contains:
-- `vm`: The root filesystem used by the virtual machine to run the guest OS with the custom kernel. It also includes scripts to build, run, and connect to the VM.
-- `scripts`: Collection of scripts for testing and various use cases within the VM environment.
+```sh
+cp /opt/kernel-playground/tests/scripts/xdp_icmpv6_drop.sh \
+    /opt/kernel-playground/tests/scripts/routing.sh \
+    /opt/kernel-playground/tests/scripts/basicTaskParse.py \
+    /opt/kernel-playground/tests/scripts/intermediateTaskParse.py \
+    /opt/kernel-playground/tests/scripts/advancedTask.py \
+    /opt/kernel-playground/tests/vm/shared/
+```
 
----
+### Setup VM
 
-## How to Get Started
+Install the required packages:
 
-1. Navigate to the `podman` folder:
+```sh
+apt install dnsutils dnsmasq bfptool
+```
 
-   ```bash
-   cd podman
-   ```
+Before proceeding, verify that all the necessary files have been successfully copied to `/mnt/shared` inside the VM. You can check this by running:
 
-2. Follow the instructions provided in the `README.md` within the `podman` folder to set up the containerized environment.
+```sh
+ls /mnt/shared
+```
 
----
+Ensure that the expected `.o` files and scripts are present in this directory.
 
-## Additional Notes
-- After setting up the environment, you can build and install the kernel and modules using the provided make targets.
-- Use the scripts inside the `tests/scripts` folder for testing specific functionalities within the VM.
 
----
+## Basic Task
 
-## Summary
-This repository is designed to facilitate customizing the Linux kernel, building kernel modules, and testing them within virtual machines, all orchestrated through containerized environments. Follow the provided instructions in each subfolder's `README.md` files to properly set up and operate the environment.
+### Inside the VM
 
----
+Run the virtual environment described in `SNProject.pdf`
 
-*For further assistance or questions, refer to the individual README files within each folder.*
+```sh
+cd /mnt/shared
+./xdp_icmpv6_drop.sh
+```
+
+From h0:
+```sh
+dig @10.0.2.1 google.com
+dig -6 @beef::1 amazon.com
+```
+
+From h1:
+
+```sh
+dig @10.0.0.1 google.com
+dig -6 @cafe::1 amazon.com
+```
+
+From r0:
+```sh
+bpftool map dump pinned /sys/fs/bpf/netprog/maps/dns_query_ts_map -j > map.txt
+```
+
+To exit from tmux, Ctrl+D then B. To go back to the container, run:
+```sh
+exit
+```
+
+### Inside the container
+```sh
+cd /opt/kernel-playground/tests/vm/shared
+python3 basicTaskParse.py map.txt
+```
+
+### Output
+You should see the 4 DNS Queries just done
+![alt text](basicTask.png)
+
+## Intermediate Task
+After building the `.o` file for the eBPF program related to this task and placing it in `/opt/kernel-playground/tests/vm/shared`, you can proceed to test the code for this task.
+
+### Inside the VM
+
+Run the virtual environment described in `SNProject.pdf`
+
+```sh
+cd /mnt/shared
+./xdp_icmpv6_drop.sh
+```
+From h1 (because for the test we will use h1 as dns server):
+
+```sh
+ip netns exec h1 dnsmasq --no-daemon --no-resolv \
+  --listen-address=10.0.2.1 \
+  --listen-address=beef::1
+```
+
+From h0:
+```sh
+dig @10.0.2.1 google.com
+dig -6 @beef::1 amazon.com
+```
+
+From r0:
+```sh
+bpftool map dump pinned /sys/fs/bpf/netprog/maps/dns_rtt_map -j -p > map.json
+```
+
+To exit from tmux, Ctrl+D then B. To go back to the container, run:
+```sh
+exit
+```
+
+### Inside the container
+```sh
+cd /opt/kernel-playground/tests/vm/shared
+python3 intermediateTaskParse.py map.json
+```
+
+### Output
+You should see the RTT of the IPv4 and IPv6 DNS requests just done
+![alt text](intermediateTask.png)
+
+
+
+## Advanced Task
+After building the `.o` file for the eBPF program related to this task and placing it in `/opt/kernel-playground/tests/vm/shared`, you can proceed to test the code for this task.
+
+### Inside the VM
+
+Run the virtual environment described in `SNProject.pdf`
+
+```sh
+cd /mnt/shared
+./xdp_icmpv6_drop.sh
+```
+From h1 (because for the test we will use h1 as dns server):
+
+```sh
+ip netns exec h1 dnsmasq --no-daemon --no-resolv --listen-address=10.0.2.1 
+```
+
+From h0:
+```sh
+dig @10.0.2.1 google.com
+dig @10.0.2.1 amazon.com
+dig @10.0.2.1 openai.com
+dig @10.0.2.1 facebook.com
+```
+From r0:
+```sh
+bpftool map dump pinned /sys/fs/bpf/netprog/maps/rtt_histogram -j -p > hist.json
+```
+
+
+To exit from tmux, Ctrl+D then B. To go back to the container, run:
+```sh
+exit
+```
+
+### Inside the container
+```sh
+cd /opt/kernel-playground/tests/vm/shared
+python3 advancedTaskParse.py hist.json
+```
+
+### Output
+You should see the RTT of the 4 DNS requests correctly classified into their bucket of the histogram
+![alt text](advancedTask.png)
+
+
+IPv6 works the same.
