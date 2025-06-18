@@ -89,8 +89,9 @@ read -r -d '' r0_env <<-EOF
 	# /sys/fs/bpf/netprog/xdp_prog_drop_icmpv6 to the veth1 network
 	# interface using bpftool net attach xdp.
 	bpftool net attach xdp \
-		pinned /sys/fs/bpf/netprog/progs/xdp_prog_drop_icmpv6 dev veth1
-
+		pinned /sys/fs/bpf/netprog/progs/xdp_dns_latency dev veth1
+	bpftool net attach xdp \
+  		pinned /sys/fs/bpf/netprog/progs/xdp_dns_latency dev veth2
         /bin/bash
 EOF
 set -e
